@@ -4,9 +4,11 @@ A Python application using the [Browser Use](https://github.com/browser-use/brow
 
 ## Features
 
-- **ChatGPT-Only Operation**: Strictly operates within chatgpt.com - no external sites or web searches
-- **Precise 6-Step Execution**: Structured workflow from navigation to response retrieval
+- **ChatGPT-Only Operation**: Strictly operates within chatgpt.com - no manual external navigation
+- **Web Search Enabled**: Always enables ChatGPT's web search for current, relevant information
+- **Precise 7-Step Execution**: Structured workflow from navigation to citations extraction
 - **Complete Response Capture**: Preserves all markdown, code blocks, line breaks, and formatting
+- **Citation Panel Extraction**: Extracts sources from ChatGPT's 'Sources' button in exact order
 - **Automatic Retry Logic**: Up to 3 retry attempts for failed operations
 - **Structured Output**: Pydantic-validated JSON responses with success/error handling
 - **No Modification**: Returns ChatGPT responses exactly as displayed, without summarization
@@ -96,10 +98,11 @@ I need a new ERP that use AI
 The agent will:
 1. Navigate to https://chatgpt.com
 2. Locate the prompt input field
-3. Submit your prompt exactly as written
-4. Wait for ChatGPT's complete response
-5. Extract the entire response with all formatting
-6. Return the response in a structured format
+3. Enable web search and submit your prompt exactly as written
+4. Wait for ChatGPT to search the web and generate a complete response
+5. Extract the entire response with all formatting preserved
+6. Click the 'Sources' button and extract citations in order
+7. Return the response and sources in a structured format
 
 ### Customizing Your Prompt
 
@@ -129,6 +132,11 @@ The agent returns structured data validated by Pydantic:
 {
   "prompt": "I need a new ERP that use AI",
   "response": "When looking for an AI-powered ERP system, here are some top options to consider:\n\n1. **SAP S/4HANA Cloud**\n   - Features advanced AI and machine learning capabilities\n   - Intelligent automation for business processes\n   - Predictive analytics and insights\n\n2. **Oracle Fusion Cloud ERP**\n   - Built-in AI and ML for intelligent process automation\n   - Adaptive intelligence for personalized experiences\n   - Advanced analytics and forecasting\n\n3. **Microsoft Dynamics 365**\n   - AI-powered insights and automation\n   - Integration with Azure AI services\n   - Copilot assistance for enhanced productivity\n\nEach offers strong AI capabilities with different strengths depending on your specific business needs.",
+  "sources": [
+    "https://www.sap.com/products/erp.html",
+    "https://www.oracle.com/erp/",
+    "https://dynamics.microsoft.com/"
+  ],
   "success": true,
   "error_message": null
 }
@@ -154,6 +162,11 @@ Prompt to submit: I need a new ERP that use AI
 {
   "prompt": "I need a new ERP that use AI",
   "response": "When looking for an AI-powered ERP system...",
+  "sources": [
+    "https://www.sap.com/products/erp.html",
+    "https://www.oracle.com/erp/",
+    "https://dynamics.microsoft.com/"
+  ],
   "success": true,
   "error_message": null
 }
@@ -185,6 +198,11 @@ When looking for an AI-powered ERP system, here are some top options to consider
 
 Each offers strong AI capabilities with different strengths depending on your specific business needs.
 --------------------------------------------------------------------------------
+
+🔗 SOURCES FOUND (3):
+  1. https://www.sap.com/products/erp.html
+  2. https://www.oracle.com/erp/
+  3. https://dynamics.microsoft.com/
 ================================================================================
 
 📊 EXECUTION STATS:
@@ -213,7 +231,7 @@ YC/
 
 ### Architecture Overview
 
-The agent follows a precise 6-step ChatGPT interaction process:
+The agent follows a precise 8-step ChatGPT interaction process:
 
 #### STEP 1: Navigate to ChatGPT.com
 - Opens browser and navigates to https://chatgpt.com
@@ -228,29 +246,49 @@ The agent follows a precise 6-step ChatGPT interaction process:
 - Ensures input field is visible and interactive
 - Waits until input area is ready for interaction
 
-#### STEP 3: Insert and Submit the Prompt
+#### STEP 3: Enable Web Search
+- Uses the `enable_chatgpt_search` custom tool to click the Search button
+- Tool automatically locates the button via `data-testid="composer-button-search"`
+- Checks if search is already enabled (`aria-pressed="true"`)
+- Clicks the button only if search is disabled
+- Waits for button state to update confirming search is enabled
+
+#### STEP 4: Write and Submit the Prompt
 - Clicks into the prompt input area to focus it
 - Inserts the EXACT prompt text without modification
-- Submits the prompt (Enter key or Send button)
-- Confirms successful submission
+- Uses the `submit_chatgpt_prompt` custom tool to click the submit button
+- Tool automatically locates the button via `data-testid="send-button"`
+- Checks if button is disabled (which would indicate empty/invalid prompt)
+- Clicks the submit button immediately after prompt is written
+- Waits briefly to confirm submission registered
 
-#### STEP 4: Wait for ChatGPT Response to Fully Load
+#### STEP 5: Wait for ChatGPT Response to Fully Load
+- Waits for ChatGPT to perform web search
 - Monitors for response streaming to begin
 - Waits for response generation to complete
 - Looks for completion indicators (copy button appears, etc.)
 - Allows up to 60 seconds for response
 - Retries up to 3 times if no response received
 
-#### STEP 5: Retrieve the Complete Response Text
+#### STEP 6: Retrieve the Complete Response Text
 - Locates ChatGPT's response in the conversation thread
 - Extracts ENTIRE response text exactly as displayed
 - Preserves ALL formatting (markdown, code blocks, line breaks)
 - No summarization, filtering, or modification
 
-#### STEP 6: Return the Structured Response
+#### STEP 7: Extract Sources from Citations Panel
+- Scrolls to the bottom of the ChatGPT response
+- Looks for and clicks the **'Sources' button**
+- Waits for citations panel to fully load
+- Extracts ALL source URLs in the **exact order** they appear
+- Sources are numbered (1, 2, 3...) - order is preserved
+- Returns empty array if no Sources button or no citations
+
+#### STEP 8: Return the Structured Response
 - Populates Pydantic model with:
   - `prompt`: Original prompt text submitted
   - `response`: Complete ChatGPT response with formatting
+  - `sources`: Array of URLs from citations panel in order (empty if none)
   - `success`: true/false based on operation result
   - `error_message`: Error description if failed, otherwise null
 - Returns JSON-validated structured output
@@ -259,19 +297,29 @@ The agent follows a precise 6-step ChatGPT interaction process:
 
 **ChatGPT System Prompt** (`CHATGPT_SYSTEM_PROMPT`)
 - Enforces strict chatgpt.com-only operation
-- Prohibits web searches and external navigation
+- Requires enabling ChatGPT's web search feature
+- Prohibits manual web searches and external navigation
+- Mandates sources extraction from citations panel
 - Defines error handling and retry behavior
 - Ensures response preservation without modification
 
 **Execution Plan** (`CHATGPT_EXECUTION_PLAN`)
-- Provides detailed 6-step interaction sequence
+- Provides detailed 8-step interaction sequence
+- Includes web search enablement via custom `enable_chatgpt_search` tool
+- Includes automatic prompt submission via custom `submit_chatgpt_prompt` tool
+- Specifies Sources button clicking and citation extraction
 - Includes retry logic for failures (up to 3 attempts)
 - Specifies timeout behavior (60 seconds for response)
-- Ensures systematic and reliable ChatGPT interaction
+- Ensures systematic and reliable ChatGPT interaction with search
 
 **Structured Output Model** (`ChatGPTResponse`)
 - Pydantic model for guaranteed schema compliance
-- Fields: prompt, response, success, error_message
+- Fields:
+  - `prompt`: Original prompt text submitted to ChatGPT
+  - `response`: Complete ChatGPT response with all formatting preserved
+  - `sources`: Array of URLs/links extracted from the response (empty if none)
+  - `success`: Boolean indicating successful retrieval
+  - `error_message`: Error description if failed, otherwise null
 - Validates all output automatically
 - Provides type safety and programmatic access
 
@@ -327,10 +375,11 @@ class ChatGPTResponse(BaseModel):
     """Enhanced ChatGPT response with additional metadata."""
     prompt: str
     response: str
+    sources: list[str]
     success: bool
     error_message: str | None
 
-    # New fields
+    # New fields you could add
     response_length: int = Field(description="Character count of response")
     response_time: float = Field(description="Time taken to generate response (seconds)")
     model_used: str = Field(description="ChatGPT model that generated response")
@@ -344,13 +393,13 @@ Use the agent to process multiple prompts:
 ```python
 import asyncio
 from main import ChatGPTResponse, prompt
-from browser_use import Agent, ChatOpenAI, Browser
+from browser_use import Agent, ChatAnthropic, Browser
 
 async def ask_chatgpt_batch(prompts: list[str]) -> list[ChatGPTResponse]:
     """Submit multiple prompts to ChatGPT and return all responses."""
     results = []
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
+    llm = ChatAnthropic(model="gpt-4o", temperature=0.0)
     browser = Browser(headless=True)
 
     for prompt_text in prompts:
@@ -411,9 +460,18 @@ for resp in responses:
 - Check that response streaming completed before extraction
 - Look for completion indicators (copy button, etc.)
 - The agent waits up to 60 seconds by default
+- Web search responses may take longer - consider increasing timeout
+
+**Web search not enabled or Sources button not found**
+- Ensure you're logged into an account with web search access (ChatGPT Plus)
+- The search toggle may be in different locations depending on UI version
+- Sources button only appears when ChatGPT uses web search
+- If no sources are found, the array will be empty (not an error)
+- Check browser console for any UI element selection issues
 
 **Agent navigates away from chatgpt.com**
 - This should not happen with the strict constraints
+- The agent should NOT manually visit external sites (ChatGPT does the searching)
 - If it does, check the system prompt enforcement
 - Review agent logs to see what triggered external navigation
 - File an issue if this persists
@@ -463,7 +521,7 @@ browser = Browser(
 ### LLM Configuration
 
 ```python
-llm = ChatOpenAI(
+llm = ChatAnthropic(
     model="gpt-4o-mini",        # or "gpt-4o" for better accuracy
     temperature=0.1,            # Low for consistency
 )
@@ -476,16 +534,21 @@ The agent enforces strict operational rules:
 ### What the Agent WILL Do
 - Navigate to chatgpt.com and stay there exclusively
 - Locate and interact with the ChatGPT prompt input field
-- Submit prompts exactly as provided without modification
-- Wait for complete response generation (up to 60 seconds)
+- **Use `enable_chatgpt_search` custom tool to automatically click the Search button**
+- Enter prompts exactly as provided without modification
+- **Use `submit_chatgpt_prompt` custom tool to automatically click the submit button**
+- Wait for ChatGPT to search the web and generate response (up to 60 seconds)
 - Extract and preserve the full response with all formatting
+- **Scroll to bottom and click 'Sources' button to extract citations**
+- Retrieve source URLs from citations panel in exact order
 - Retry failed operations up to 3 times
-- Return structured output with success/error status
+- Return structured output with response, sources, and success/error status
 
 ### What the Agent WILL NOT Do
 - Navigate to any site other than chatgpt.com
-- Perform web searches on Google, DuckDuckGo, Bing, etc.
-- Visit external URLs or documentation sites
+- Manually perform web searches on Google, DuckDuckGo, Bing, etc.
+- Manually visit external URLs or documentation sites (ChatGPT does the searching)
+- Extract sources from inline links (must use citations panel)
 - Modify, summarize, or filter ChatGPT responses
 - Attempt workarounds beyond the 3-retry limit
 - Follow links outside of chatgpt.com
@@ -493,14 +556,15 @@ The agent enforces strict operational rules:
 
 ## Limitations
 
-- Operates exclusively on chatgpt.com - no web search or external research
+- Operates exclusively on chatgpt.com - agent does not manually search the web (ChatGPT does)
 - ChatGPT may require login/authentication for access
-- Response quality depends entirely on ChatGPT's output
+- Web search feature requires ChatGPT Plus or appropriate access level
+- Response quality depends entirely on ChatGPT's search and output
 - Browser automation requires stable internet connection
-- Execution time varies based on ChatGPT response length (typically 20-60 seconds)
+- Execution time varies based on web search and response length (typically 30-90 seconds)
 - Requires browser to be installed (Chrome/Chromium)
 - Subject to ChatGPT's rate limits and terms of service
-- Does not work with ChatGPT Plus features unless logged in
+- Sources are only available if ChatGPT provides citations (web search enabled)
 
 ## Security & Privacy
 
