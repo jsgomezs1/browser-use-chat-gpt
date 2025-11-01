@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 import asyncio
 import json
 from typing import List, Optional
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
+import uvicorn
 
 load_dotenv()
 
@@ -21,7 +24,7 @@ HEADLESS_MODE = False  # Set to True for production
 
 # Input query to process
 DEFAULT_PROMPT = """
-necesito validar la informacion del pasado judicial de mis conductores
+ what are the best ERP systems for small businesses?
 """
 
 # ============================================================================
@@ -209,10 +212,7 @@ async def submit_chatgpt_prompt(controller: Optional[Controller] = None) -> str:
         return f'❌ Failed to submit prompt: {str(e)}'
 
 
-# Input query to process
-prompt = """
-necesito validar la informacion del pasado judicial de mis conductores
-"""
+
 
 # ============================================================================
 # DATA MODELS
@@ -227,6 +227,10 @@ class ChatGPTResponse(BaseModel):
     response: str = Field(description="The complete ChatGPT response text, preserving all formatting, markdown, line breaks, etc.")
     sources: List[Source] = Field(description="An ordered list of the sources cited in the answer, preserving their order of appearance. Empty array if no sources provided.")
 
+class PromptRequest(BaseModel):
+    """Request model for the API endpoint."""
+    prompt: str = Field(..., description="The prompt to submit to ChatGPT", min_length=1, max_length=10000)
+
 # ============================================================================
 # CONFIGURATION CLASSES
 # ============================================================================
@@ -239,10 +243,12 @@ class ChatGPTConfig:
         self.system_prompt = """
 You operate exclusively on chatgpt.com. Use navigate_to_url tool to reach https://chatgpt.com.
 
+CRITICAL: The user prompt will ALWAYS include "Retrieve sources" appended at the end. Submit the COMPLETE prompt including this instruction.
+
 Task sequence:
 1. Navigate to chatgpt.com
 2. Use enable_chatgpt_search tool to activate web search feature
-3. Enter user prompt in textbox exactly as provided (without modification)
+3. Enter the COMPLETE user prompt in textbox exactly as provided (including "Retrieve sources" instruction)
 4. Use submit_chatgpt_prompt tool to submit the prompt immediately after writing it
 5. Wait for complete response (60s timeout, retry up to 3 times if needed)
 6. Scroll to response end
@@ -296,18 +302,23 @@ class AgentSetup:
         """Construct the complete task with strict ChatGPT-only instructions.
 
         Args:
-            prompt: The prompt to submit to ChatGPT
+            prompt: The prompt to submit to ChatGPT (sources retrieval instruction will be automatically appended)
 
         Returns:
             str: Formatted task string with instructions
         """
+        # Always append instruction to retrieve sources
+        full_prompt = f"{prompt.strip()}. Retrieve sources"
+        
         return f"""
-Submit this prompt to ChatGPT: "{prompt}.retrive sources"
+Submit this prompt to ChatGPT: "{full_prompt}"
+
+IMPORTANT: The prompt above ALREADY includes the instruction to retrieve sources. Submit it exactly as shown.
 
 Steps:
 1. Use navigate_to_url to go to https://chatgpt.com
 2. Use enable_chatgpt_search tool to enable web search
-3. Enter the prompt exactly as shown above (without modification)
+3. Enter the complete prompt exactly as shown above (including the "Retrieve sources" part)
 4. Use submit_chatgpt_prompt tool to submit the prompt immediately after writing it
 5. Wait for complete response
 6. Scroll to end, click 'Sources' button
@@ -409,6 +420,78 @@ class OutputHandler:
 
 
 # ============================================================================
+# FASTAPI APPLICATION
+# ============================================================================
+app = FastAPI(
+    title="ChatGPT Browser Agent API",
+    description="API for executing prompts through ChatGPT with web search and citation extraction",
+    version="1.0.0"
+)
+
+@app.post(
+    "/execute",
+    response_model=ChatGPTResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Execute a prompt through ChatGPT",
+    response_description="The ChatGPT response with sources"
+)
+async def execute_prompt(request: PromptRequest) -> ChatGPTResponse:
+    """
+    Execute a prompt through ChatGPT with web search enabled.
+
+    This endpoint:
+    - Navigates to ChatGPT
+    - Enables web search
+    - Submits the provided prompt
+    - Waits for the response
+    - Extracts citations and sources
+
+    Args:
+        request: JSON payload containing the prompt field
+
+    Returns:
+        ChatGPTResponse: Structured response with the ChatGPT output and sources
+
+    Raises:
+        HTTPException: If execution fails or returns no result
+    """
+    try:
+        # Initialize dependencies
+        config = ChatGPTConfig()
+        setup = AgentSetup(config)
+        execution = AgentExecution(setup)
+
+        # Execute the prompt
+        result = await execution.execute(request.prompt)
+
+        # Validate result
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Agent execution failed to produce a structured output. Please try again."
+            )
+
+        return result
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Log the error and return a generic error response
+        error_message = str(e)
+        print(f"Error executing prompt: {error_message}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during execution: {error_message}"
+        )
+
+@app.get("/health", status_code=status.HTTP_200_OK)
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "ChatGPT Browser Agent API"}
+
+
+# ============================================================================
 # MAIN EXECUTION
 # ============================================================================
 async def main() -> None:
@@ -428,5 +511,26 @@ async def main() -> None:
     handler.display_result(result)
 
 
+def run_api(host: str = "0.0.0.0", port: int = 8000):
+    """
+    Run the FastAPI application server.
+
+    Args:
+        host: Host to bind to (default: 0.0.0.0)
+        port: Port to bind to (default: 8000)
+    """
+    uvicorn.run(app, host=host, port=port)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+
+    # Get port from command line argument or use default
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+
+    print(f"🚀 Starting FastAPI server on http://0.0.0.0:{port}")
+    print(f"📚 API docs available at http://localhost:{port}/docs")
+    print(f"📍 POST endpoint: http://localhost:{port}/execute")
+    print(f"💚 Health check: http://localhost:{port}/health")
+
+    run_api(port=port)
