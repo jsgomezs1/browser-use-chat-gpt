@@ -77,20 +77,51 @@ BROWSER_TIMEOUT=60000
 
 ## Usage
 
-### Basic Usage
+### Running the API Server
 
-Run the ChatGPT agent with your prompt defined in `main.py`:
+Start the FastAPI server:
 
 ```bash
 python main.py
 ```
 
-Edit the `prompt` variable in `main.py` to change what you want to ask ChatGPT:
+By default, the server runs on port 8000. To use a different port:
+
+```bash
+python main.py 3000
+```
+
+The server will start and you'll see:
+```
+🚀 Starting FastAPI server on http://0.0.0.0:8000
+📚 API docs available at http://localhost:8000/docs
+📍 POST endpoint: http://localhost:8000/execute
+💚 Health check: http://localhost:8000/health
+```
+
+### Making API Requests
+
+Send a POST request to `/execute` with your prompt:
+
+```bash
+curl -X POST http://localhost:8000/execute \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What are the best ERP systems for small businesses?"}'
+```
+
+Or using Python:
 
 ```python
-prompt = """
-I need a new ERP that use AI
-"""
+import requests
+
+response = requests.post(
+    "http://localhost:8000/execute",
+    json={"prompt": "What are the best ERP systems for small businesses?"}
+)
+
+result = response.json()
+print(f"Response: {result['response']}")
+print(f"Sources: {result['sources']}")
 ```
 
 ### How It Works
@@ -217,12 +248,25 @@ Each offers strong AI capabilities with different strengths depending on your sp
 
 ```
 YC/
-├── .env                    # Environment variables (create from .env.example)
+├── api/
+│   ├── __init__.py        # API module exports
+│   └── routes.py          # FastAPI routes and endpoints
+├── config/
+│   ├── __init__.py        # Config module exports
+│   └── settings.py        # Application configuration and constants
+├── models/
+│   ├── __init__.py        # Models module exports
+│   └── schemas.py         # Pydantic data models
+├── services/
+│   ├── __init__.py        # Services module exports
+│   ├── agent_setup.py     # Agent configuration and setup
+│   └── agent_execution.py # Agent execution logic
+├── tools/
+│   ├── __init__.py        # Tools module exports
+│   └── browser_tools.py   # Custom browser interaction tools
+├── .env                   # Environment variables (create from .env.example)
 ├── .env.example           # Environment variable template
-├── main.py                # Main application entry point
-├── chatgpt_agent.py       # Browser Use agent implementation
-├── source_extractor.py    # Source parsing and extraction logic
-├── config.py              # Configuration management
+├── main.py                # Application entry point
 ├── pyproject.toml         # Project dependencies and metadata
 └── README.md              # This file
 ```
