@@ -1,7 +1,12 @@
 [project]
 name = "yc"
 version = "0.1.0"
-description = "Add your description here"
+description = "Enhanced Browser Use Research Agent with Structured Output"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "browser-use>=0.9.4",
+    "python-dotenv>=1.0.0",
+    "langchain-openai>=0.2.0",
+    "pydantic>=2.0.0",
+]
